@@ -1,0 +1,1399 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>פיזור אינטראקטיבי מתקדם - מעגלים מוזיקליים</title>
+  <style>
+    html, body { margin:0; padding:0; overflow:hidden; background:white; transition: background 0.5s; }
+    body.dark { background:#111; }
+    body.bw canvas { filter: grayscale(1); }
+    canvas { position:absolute; top:0; left:0; width:100vw; height:100vh; }
+    #bg        { z-index:0; }
+    #bin       { z-index:1; }
+    #codeCanvas{ z-index:2; }
+    #fg        { z-index:3; }
+    #controls {
+      position:absolute; bottom:10px; right:10px; z-index:4;
+      background:rgba(255,255,255,0.9); padding:10px;
+      border-radius:10px; font-family:sans-serif; font-size:14px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      width: 250px;
+    }
+    body.dark #controls { background:rgba(30,30,30,0.8); color:#ddd; }
+    .toggle-btn {
+      position:absolute; top:10px; width:40px; height:40px; z-index:5;
+      font-size:20px; line-height:36px; text-align:center;
+      border-radius:50%; border:2px solid; background:rgba(255,255,255,0.8);
+      cursor:pointer; box-shadow:0 0 8px rgba(0,0,0,0.3); transition:all 0.3s;
+    }
+    body.dark .toggle-btn { background:rgba(30,30,30,0.8); }
+    #toggleDark { left:10px; color:#ffa500; border-color:#ffa500; }
+    body.dark #toggleDark { color:#fff176; border-color:#fff176; }
+    #toggleBW { left:60px; color:#000; border-color:#000; }
+    body.dark #toggleBW { color:#fff; border-color:#fff; }
+    #layoutBtn { left:110px; color:#08f; border-color:#08f; }
+    #isolateBtn { left:160px; color:#f08; border-color:#f08; }
+    #addElementsBtn { left:210px; color:#4CAF50; border-color:#4CAF50; }
+    #gridModeBtn { left:260px; color:#9C27B0; border-color:#9C27B0; }
+    #sizeBtn { left:310px; color:#FF9800; border-color:#FF9800; font-size:16px; }
+    #deleteBtn { left:360px; color:#f44336; border-color:#f44336; }
+    .toggle-btn.active { background:rgba(200,200,255,0.6); }
+    body.dark .toggle-btn.active { background:rgba(50,50,80,0.6); }
+    #layoutMenu, #addElementsMenu, #sizeMenu {
+      position:absolute; top:60px; z-index:6;
+      background:rgba(255,255,255,0.95); border:1px solid #888;
+      padding:5px; display:none; border-radius:5px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.2);
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    body.dark #layoutMenu, body.dark #addElementsMenu, body.dark #sizeMenu { 
+      background:rgba(30,30,30,0.95); border-color:#555;
+    }
+    #layoutMenu { left:110px; width: 180px; }
+    #addElementsMenu { left:210px; width:180px; }
+    #sizeMenu { left:310px; width: 120px; }
+    #layoutMenu button, #addElementsMenu button, #sizeMenu button {
+      display:block; width:100%; margin:2px 0; font-size:13px;
+      background:#f5f5f5; border:1px solid #ddd; border-radius:3px;
+      padding:5px 8px; cursor:pointer; text-align:right;
+      white-space: nowrap;
+    }
+    body.dark #layoutMenu button, 
+    body.dark #addElementsMenu button,
+    body.dark #sizeMenu button { 
+      background:#333; border-color:#555; color:#eee;
+    }
+    #layoutMenu button:hover, 
+    #addElementsMenu button:hover,
+    #sizeMenu button:hover {
+      background:#e0e0e0;
+    }
+    body.dark #layoutMenu button:hover, 
+    body.dark #addElementsMenu button:hover,
+    body.dark #sizeMenu button:hover {
+      background:#444;
+    }
+    #controls label { display:block; margin:5px 0; }
+    #controls input { width:100px; vertical-align:middle; }
+    .tooltip {
+      position:absolute; bottom:60px; right:10px; z-index:7;
+      background:rgba(0,0,0,0.7); color:white; padding:8px 12px;
+      border-radius:5px; font-size:12px; display:none;
+      max-width:200px; pointer-events:none;
+    }
+    .grid-point {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: rgba(255,0,0,0.5);
+      transform: translate(-4px, -4px);
+      z-index: 8;
+      pointer-events: none;
+      display: none;
+    }
+    body.dark .grid-point {
+      background-color: rgba(255,100,100,0.7);
+    }
+    .category-title {
+      font-weight: bold;
+      padding: 5px;
+      background: rgba(0,0,0,0.1);
+      margin: 5px -5px;
+      text-align: center;
+    }
+    body.dark .category-title {
+      background: rgba(255,255,255,0.1);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="bg"></canvas>
+  <canvas id="bin"></canvas>
+  <canvas id="codeCanvas"></canvas>
+  <canvas id="fg"></canvas>
+  <div class="grid-point" id="gridPoint"></div>
+
+  <div id="controls">
+    <label>כאוס: <input type="range" id="chaos" min="0" max="1" step="0.01" value="0.1"></label>
+    <label>צפיפות: <input type="range" id="density" min="1" max="2" step="1" value="1"></label>
+    <label>גודל בסיסי: <input type="range" id="baseSize" min="3" max="20" step="1" value="8"></label>
+    <label>מרווח גריד: <input type="range" id="gridSpacing" min="20" max="150" step="10" value="60"></label>
+    <label>קנה מידה: <input type="range" id="scaleFactor" min="50" max="200" step="10" value="150"></label>
+  </div>
+  
+  <button id="toggleDark" class="toggle-btn" title="מצב לילה">☀</button>
+  <button id="toggleBW" class="toggle-btn" title="שחור-לבן">B/W</button>
+  <button id="layoutBtn" class="toggle-btn" title="סידורים">≡</button>
+  <button id="isolateBtn" class="toggle-btn" title="בידוד">★</button>
+  <button id="addElementsBtn" class="toggle-btn" title="הוספת רכיבים">+</button>
+  <button id="gridModeBtn" class="toggle-btn active" title="מצב גריד">#</button>
+  <button id="sizeBtn" class="toggle-btn" title="גודל רכיבים">S</button>
+  <button id="deleteBtn" class="toggle-btn" title="מחיקה">🗑</button>
+  
+  <div id="layoutMenu">
+    <div class="category-title">צורות בסיסיות</div>
+    <button data-layout="0">רשת רגילה</button>
+    <button data-layout="1">רשת אקראית</button>
+    <button data-layout="2">ספירלה</button>
+    <button data-layout="3">קרניים</button>
+    <button data-layout="4">אלכסונים</button>
+    <button data-layout="5">שחמט</button>
+    <button data-layout="6">משושים</button>
+    <button data-layout="7">מעגל</button>
+  </div>
+  
+  <div id="addElementsMenu">
+    <div class="category-title">רכיבים מכניים</div>
+    <button data-element="spring">הוסף קפיץ</button>
+    <button data-element="gear">הוסף גלגל שיניים</button>
+    
+    <div class="category-title">רכיבים חשמליים</div>
+    <button data-element="led">הוסף נורית LED</button>
+    <button data-element="wire">הוסף קשר חשמלי</button>
+    <button data-element="current">הוסף זרם חשמלי</button>
+    
+    <div class="category-title">רכיבים חלקיקיים</div>
+    <button data-element="particle">הוסף חלקיקים</button>
+    <button data-element="cluster">הוסף צביר חלקיקים</button>
+  </div>
+  
+  <div id="sizeMenu">
+    <button data-size="small">קטן</button>
+    <button data-size="medium">בינוני</button>
+    <button data-size="large">גדול</button>
+    <button data-size="random">אקראי</button>
+  </div>
+  
+  <div class="tooltip" id="tooltip"></div>
+
+<script>
+// הגדרת קנבסים והקשר ציור
+const bg = document.getElementById("bg"),
+      binCanvas = document.getElementById("bin"),
+      codeCanvas = document.getElementById("codeCanvas"),
+      fg = document.getElementById("fg"),
+      ctxBg = bg.getContext("2d"),
+      ctxBin = binCanvas.getContext("2d"),
+      ctxCode = codeCanvas.getContext("2d"),
+      ctx = fg.getContext("2d"),
+      gridPoint = document.getElementById("gridPoint");
+
+// הגדרת מידות
+const w = bg.width = binCanvas.width = codeCanvas.width = fg.width = innerWidth;
+const h = bg.height = binCanvas.height = codeCanvas.height = fg.height = innerHeight;
+
+// משתני מערכת
+let chaos = 0.1, density = 1, baseSize = 8, gridSpacing = 60, scaleFactor = 150,
+    pointerX = w/2, pointerY = h/2, pointerActive = false,
+    spreadScale = 75,
+    layoutType = 0, isolateMode = false, addElementMode = null, gridMode = true, deleteMode = false;
+
+// טקסט הקוד להצגה
+let codeText = document.documentElement.outerHTML, charIndex = 0;
+
+// הגדרת הקשר שמע
+let audioCtx = null;
+const musicContext = {
+  componentCount: 0,
+  tempo: 0.4,
+  scale: [261.63, 293.66, 329.63, 392.00, 440.00], // C major pentatonic (C4, D4, E4, G4, A4)
+  activeOscillators: new Map() // Track oscillators for continuous playback
+};
+
+// פונקציה ליצירת הקשר שמע עם אירוע משתמש ראשון
+function initAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+// מחלקת מעגל
+class Circuit {
+  constructor(components, gears) {
+    this.components = components; // Array of components (Wire, Current, Spring)
+    this.gears = gears; // Array of gears in the circuit
+    this.oscillators = [];
+    this.playContinuousSound();
+  }
+
+  playContinuousSound() {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    this.components.forEach(comp => {
+      let osc, gainNode, filter;
+      if (comp instanceof Spring) {
+        osc = audioCtx.createOscillator();
+        gainNode = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(musicContext.scale[1], now); // D4
+        gainNode.gain.setValueAtTime(0.1, now);
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+      } else if (comp instanceof Wire) {
+        osc = audioCtx.createOscillator();
+        gainNode = audioCtx.createGain();
+        filter = audioCtx.createBiquadFilter();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(musicContext.scale[2], now); // E4
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(500, now);
+        gainNode.gain.setValueAtTime(0.08, now);
+        osc.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+      } else if (comp instanceof Current) {
+        osc = audioCtx.createOscillator();
+        gainNode = audioCtx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(musicContext.scale[3], now); // G4
+        gainNode.gain.setValueAtTime(0.1, now);
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+      }
+      osc.start();
+      this.oscillators.push({ osc, gainNode });
+      musicContext.activeOscillators.set(comp, { osc, gainNode });
+    });
+  }
+
+  stopSound() {
+    this.oscillators.forEach(({ osc, gainNode }) => {
+      const now = audioCtx.currentTime;
+      gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+      osc.stop(now + 0.2);
+    });
+    this.components.forEach(comp => musicContext.activeOscillators.delete(comp));
+    this.oscillators = [];
+  }
+}
+
+let circuits = [];
+
+// פונקציה לבדיקת יצירת מעגל
+function checkForCircuit(newComponent, g1, g2) {
+  const connectedGears = new Set([g1, g2]);
+  const relatedComponents = [];
+
+  // Find all components connected to g1 or g2
+  [springs, wires, currents].forEach(arr => {
+    arr.forEach(comp => {
+      if (comp !== newComponent && (comp.g1 === g1 || comp.g2 === g1 || comp.g1 === g2 || comp.g2 === g2)) {
+        relatedComponents.push(comp);
+        connectedGears.add(comp.g1);
+        connectedGears.add(comp.g2);
+      }
+    });
+  });
+
+  // Simple circuit detection: if new component connects gears already in a network
+  if (relatedComponents.length > 0) {
+    relatedComponents.push(newComponent);
+    const circuit = new Circuit(relatedComponents, Array.from(connectedGears));
+    circuits.push(circuit);
+    showTooltip("מעגל נסגר! צלילים מושמעים ברצף", 2000);
+  }
+}
+
+// פונקציה להסרת רכיב ושבירת מעגלים
+function removeComponent(component) {
+  if (component instanceof Spring) {
+    springs = springs.filter(s => s !== component);
+  } else if (component instanceof Wire) {
+    wires = wires.filter(w => w !== component);
+  } else if (component instanceof Current) {
+    currents = currents.filter(c => c !== component);
+  }
+
+  // Stop sounds and remove circuits involving this component
+  circuits = circuits.filter(circuit => {
+    if (circuit.components.includes(component)) {
+      circuit.stopSound();
+      return false;
+    }
+    return true;
+  });
+
+  showTooltip("רכיב הוסר, מעגל נשבר", 1000);
+}
+
+// פונקציה להשמעת צליל משולב בעת חיבור רכיבים (חד-פעמי)
+function playConnectionSound(type, startFreq, endFreq) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const duration = musicContext.tempo * (0.8 + musicContext.componentCount * 0.05);
+  
+  if (type === 'spring' || type === 'wire' || type === 'current') {
+    const osc1 = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    osc1.type = type === 'spring' ? 'sine' : type === 'wire' ? 'sawtooth' : 'square';
+    osc2.type = 'sine';
+    osc1.frequency.setValueAtTime(startFreq, now);
+    osc2.frequency.setValueAtTime(endFreq, now);
+    gainNode.gain.setValueAtTime(0.15, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+    osc1.connect(gainNode);
+    osc2.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    osc1.start();
+    osc2.start();
+    osc1.stop(now + duration);
+    osc2.stop(now + duration);
+  } else if (type === 'cluster') {
+    const notes = [startFreq, endFreq, musicContext.scale[2], musicContext.scale[4]];
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.1);
+      gainNode.gain.setValueAtTime(0.1, now + i * 0.1);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, now + i * 0.1 + 0.2);
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      osc.start(now + i * 0.1);
+      osc.stop(now + i * 0.1 + 0.2);
+    });
+  }
+}
+
+// אירועי בקרה
+document.getElementById("chaos").oninput = e => chaos = +e.target.value;
+document.getElementById("density").oninput = e => { density = +e.target.value; build(); };
+document.getElementById("baseSize").oninput = e => { baseSize = +e.target.value; build(); };
+document.getElementById("gridSpacing").oninput = e => { gridSpacing = +e.target.value; drawGrid(0); };
+document.getElementById("scaleFactor").oninput = e => { scaleFactor = +e.target.value; build(); };
+document.getElementById("toggleDark").onclick = () => document.body.classList.toggle("dark");
+document.getElementById("toggleBW").onclick = () => document.body.classList.toggle("bw");
+
+const layoutBtn = document.getElementById("layoutBtn"),
+      layoutMenu = document.getElementById("layoutMenu"),
+      isolateBtn = document.getElementById("isolateBtn"),
+      addElementsBtn = document.getElementById("addElementsBtn"),
+      addElementsMenu = document.getElementById("addElementsMenu"),
+      gridModeBtn = document.getElementById("gridModeBtn"),
+      sizeBtn = document.getElementById("sizeBtn"),
+      sizeMenu = document.getElementById("sizeMenu"),
+      deleteBtn = document.getElementById("deleteBtn"),
+      tooltip = document.getElementById("tooltip");
+
+layoutBtn.onclick = (e) => {
+  layoutMenu.style.display = layoutMenu.style.display === 'block' ? 'none' : 'block';
+  addElementsMenu.style.display = 'none';
+  sizeMenu.style.display = 'none';
+  e.stopPropagation();
+};
+
+addElementsBtn.onclick = (e) => {
+  addElementsMenu.style.display = addElementsMenu.style.display === 'block' ? 'none' : 'block';
+  layoutMenu.style.display = 'none';
+  sizeMenu.style.display = 'none';
+  deleteMode = false;
+  deleteBtn.classList.remove('active');
+  e.stopPropagation();
+};
+
+sizeBtn.onclick = (e) => {
+  sizeMenu.style.display = sizeMenu.style.display === 'block' ? 'none' : 'block';
+  layoutMenu.style.display = 'none';
+  addElementsMenu.style.display = 'none';
+  e.stopPropagation();
+};
+
+isolateBtn.onclick = () => {
+  isolateMode = !isolateMode;
+  isolateBtn.classList.toggle('active', isolateMode);
+};
+
+gridModeBtn.onclick = () => {
+  gridMode = !gridMode;
+  gridModeBtn.classList.toggle('active', gridMode);
+  gridPoint.style.display = gridMode ? 'block' : 'none';
+  if(gridMode) showTooltip("מצב גריד פעיל - לחץ להוספת רכיבים", 2000);
+};
+
+deleteBtn.onclick = () => {
+  deleteMode = !deleteMode;
+  deleteBtn.classList.toggle('active', deleteMode);
+  addElementsMenu.style.display = 'none';
+  addElementMode = null;
+  addElementsBtn.classList.remove('active');
+  tooltip.style.display = 'none';
+  showTooltip("לחץ על רכיב למחיקה", deleteMode ? 2000 : 0);
+};
+
+layoutMenu.querySelectorAll("button").forEach(b => {
+  b.onclick = () => {
+    layoutType = +b.dataset.layout;
+    layoutMenu.style.display = 'none';
+    build();
+  }
+});
+
+addElementsMenu.querySelectorAll("button").forEach(b => {
+  b.onclick = () => {
+    addElementMode = b.dataset.element;
+    addElementsMenu.style.display = 'none';
+    addElementsBtn.classList.add('active');
+    deleteMode = false;
+    deleteBtn.classList.remove('active');
+    showTooltip("לחץ על שני גלגלים כדי להוסיף " + b.textContent, 0);
+  }
+});
+
+sizeMenu.querySelectorAll("button").forEach(b => {
+  b.onclick = () => {
+    const size = b.dataset.size;
+    switch(size) {
+      case 'small': baseSize = 5; break;
+      case 'medium': baseSize = 10; break;
+      case 'large': baseSize = 15; break;
+      case 'random': baseSize = 5 + Math.random() * 10; break;
+    }
+    document.getElementById("baseSize").value = baseSize;
+    sizeMenu.style.display = 'none';
+    build();
+  }
+});
+
+// פונקציית הצגת הודעת עזר
+function showTooltip(msg, duration = 3000) {
+  tooltip.textContent = msg;
+  tooltip.style.display = 'block';
+  if(duration > 0) {
+    setTimeout(() => {
+      tooltip.style.display = 'none';
+    }, duration);
+  }
+}
+
+// פונקציית צבע לפי מרחק
+function heatColor(d) {
+  const t = Math.min(d/300,1), hue = 240 - 240 * t;
+  return `hsl(${hue},100%,50%)`;
+}
+
+// קבועים
+const TEAR_RADIUS = 120;
+let gears = [], springs = [], leds = [], wires = [], currents = [], particles = [];
+
+// מחלקת גלגל שיניים
+class Gear {
+  constructor(bx, by, r) {
+    this.bx = bx; this.by = by; this.r = r;
+    this.x = bx; this.y = by; this.i = 0;
+    this.rotation = 0;
+    this.teeth = Math.floor(r/2) + 3;
+    this.speed = 0.01 + Math.random() * 0.02;
+    this.playSound();
+    musicContext.componentCount++;
+  }
+  
+  update(t) {
+    const dx = this.bx - pointerX, 
+          dy = this.by - pointerY,
+          d = Math.hypot(dx, dy),
+          randX = Math.sin(t * 0.001 + this.bx) * chaos * 20,
+          randY = Math.cos(t * 0.001 + this.by) * chaos * 20,
+          nx = dx / d || 0, 
+          ny = dy / d || 0,
+          spread = pointerActive ? (1 - Math.min(d / 300, 1)) * spreadScale : 0;
+    
+    this.i = d;
+    let x0 = this.bx + nx * spread + randX,
+        y0 = this.by + ny * spread + randY;
+    
+    if(pointerActive && d < TEAR_RADIUS) {
+      const relX = x0 - pointerX, 
+            relY = y0 - pointerY,
+            ang0 = Math.atan2(relY, relX),
+            r0 = Math.hypot(relX, relY),
+            swirl = (1 - d / TEAR_RADIUS) * Math.sin(t * 0.005) * 1.5,
+            ang1 = ang0 + swirl;
+      
+      x0 = pointerX + Math.cos(ang1) * r0;
+      y0 = pointerY + Math.sin(ang1) * r0;
+    }
+    
+    this.x = x0; 
+    this.y = y0;
+    this.rotation += this.speed;
+  }
+  
+  draw(c) {
+    c.save();
+    c.translate(this.x, this.y);
+    c.rotate(this.rotation);
+    
+    c.beginPath();
+    c.strokeStyle = heatColor(this.i);
+    c.arc(0, 0, this.r * 0.6, 0, 2 * Math.PI);
+    c.stroke();
+    
+    const teethLength = this.r * 0.3;
+    for(let i = 0; i < this.teeth; i++) {
+      const angle = (i / this.teeth) * 2 * Math.PI;
+      c.beginPath();
+      c.moveTo(
+        Math.cos(angle) * (this.r * 0.6),
+        Math.sin(angle) * (this.r * 0.6)
+      );
+      c.lineTo(
+        Math.cos(angle) * (this.r * 0.6 + teethLength),
+        Math.sin(angle) * (this.r * 0.6 + teethLength)
+      );
+      c.stroke();
+    }
+    
+    c.restore();
+  }
+
+  playSound() {
+    if (!audioCtx) return;
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(musicContext.scale[0], audioCtx.currentTime); // C4
+    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.2);
+  }
+}
+
+// מחלקת קפיץ
+class Spring {
+  constructor(g1, g2, f) { 
+    this.g1 = g1; 
+    this.g2 = g2; 
+    this.f = f;
+    this.width = 2 + Math.random() * 2;
+    this.playSound();
+    musicContext.componentCount++;
+    playConnectionSound('spring', musicContext.scale[1], musicContext.scale[3]); // D4 + G4
+  }
+  
+  draw(c, t) {
+    const dx = this.g2.x - this.g1.x, 
+          dy = this.g2.y - this.g1.y,
+          d = Math.hypot(dx, dy), 
+          ang = Math.atan2(dy, dx);
+    
+    c.save(); 
+    c.translate(this.g1.x, this.g1.y); 
+    c.rotate(ang);
+    c.strokeStyle = heatColor((this.g1.i + this.g2.i) / 2);
+    c.lineWidth = this.width;
+    c.beginPath();
+    
+    const segments = 20;
+    for(let i = 0; i < segments; i++) {
+      const x = d * i / segments, 
+            y = Math.sin(i * 0.8 + t * this.f) * 6;
+      c.lineTo(x, y);
+    }
+    
+    c.stroke(); 
+    c.restore();
+  }
+
+  playSound() {
+    if (!audioCtx) return;
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(musicContext.scale[1], audioCtx.currentTime); // D4
+    oscillator.frequency.exponentialRampToValueAtTime(musicContext.scale[1] * 1.1, audioCtx.currentTime + 0.3);
+    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.5);
+  }
+}
+
+// מחלקת נורית LED
+class LED {
+  constructor(g, f) { 
+    this.g = g; 
+    this.f = f;
+    this.size = 4 + Math.random() * 3;
+    this.playSound();
+    musicContext.componentCount++;
+  }
+  
+  draw(c, t) {
+    c.beginPath(); 
+    c.arc(this.g.x, this.g.y, this.size, 0, 2 * Math.PI);
+    c.fillStyle = Math.sin(t * this.f) > 0 ? heatColor(this.g.i) : "white";
+    c.fill(); 
+    c.strokeStyle = document.body.classList.contains("dark") ? "#fff" : "#000";
+    c.stroke();
+  }
+
+  playSound() {
+    if (!audioCtx) return;
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(musicContext.scale[4], audioCtx.currentTime); // A4
+    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.1);
+  }
+}
+
+// מחלקת קשר חשמלי
+class Wire {
+  constructor(g1, g2) {
+    this.g1 = g1;
+    this.g2 = g2;
+    this.nodes = [];
+    this.segments = 5;
+    this.width = 1;
+    this.color = "#888";
+    this.particles = [];
+    
+    for(let i = 0; i <= this.segments; i++) {
+      this.nodes.push({
+        x: g1.x + (g2.x - g1.x) * i / this.segments,
+        y: g1.y + (g2.y - g1.y) * i / this.segments,
+        offsetX: (Math.random() - 0.5) * 10,
+        offsetY: (Math.random() - 0.5) * 10
+      });
+    }
+    
+    for(let i = 0; i < 5; i++) {
+      this.particles.push({
+        progress: Math.random(),
+        speed: 0.005 + Math.random() * 0.01,
+        size: 2 + Math.random() * 2
+      });
+    }
+    this.playSound();
+    musicContext.componentCount++;
+    playConnectionSound('wire', musicContext.scale[2], musicContext.scale[4]); // E4 + A4
+  }
+  
+  update(t) {
+    for(let i = 1; i < this.nodes.length - 1; i++) {
+      this.nodes[i].offsetX = Math.sin(t * 0.002 + i) * 8;
+      this.nodes[i].offsetY = Math.cos(t * 0.003 + i) * 8;
+    }
+    
+    this.particles.forEach(p => {
+      p.progress += p.speed;
+      if(p.progress > 1) p.progress = 0;
+    });
+  }
+  
+  draw(c) {
+    c.beginPath();
+    c.strokeStyle = this.color;
+    c.lineWidth = this.width;
+    
+    c.moveTo(this.g1.x, this.g1.y);
+    for(let i = 1; i < this.nodes.length - 1; i++) {
+      const node = this.nodes[i];
+      c.lineTo(node.x + node.offsetX, node.y + node.offsetY);
+    }
+    c.lineTo(this.g2.x, this.g2.y);
+    
+    c.stroke();
+    
+    this.particles.forEach(p => {
+      const progress = p.progress;
+      let x, y;
+      
+      if(progress <= 0.2) {
+        const t = progress / 0.2;
+        x = this.g1.x + (this.nodes[1].x + this.nodes[1].offsetX - this.g1.x) * t;
+        y = this.g1.y + (this.nodes[1].y + this.nodes[1].offsetY - this.g1.y) * t;
+      } 
+      else if(progress <= 0.4) {
+        const t = (progress - 0.2) / 0.2;
+        x = this.nodes[1].x + this.nodes[1].offsetX + 
+            (this.nodes[2].x + this.nodes[2].offsetX - (this.nodes[1].x + this.nodes[1].offsetX)) * t;
+        y = this.nodes[1].y + this.nodes[1].offsetY + 
+            (this.nodes[2].y + this.nodes[2].offsetY - (this.nodes[1].y + this.nodes[1].offsetY)) * t;
+      }
+      else if(progress <= 0.6) {
+        const t = (progress - 0.4) / 0.2;
+        x = this.nodes[2].x + this.nodes[2].offsetX + 
+            (this.nodes[3].x + this.nodes[3].offsetX - (this.nodes[2].x + this.nodes[2].offsetX)) * t;
+        y = this.nodes[2].y + this.nodes[2].offsetY + 
+            (this.nodes[3].y + this.nodes[3].offsetY - (this.nodes[2].y + this.nodes[2].offsetY)) * t;
+      }
+      else if(progress <= 0.8) {
+        const t = (progress - 0.6) / 0.2;
+        x = this.nodes[3].x + this.nodes[3].offsetX + 
+            (this.nodes[4].x + this.nodes[4].offsetX - (this.nodes[3].x + this.nodes[3].offsetX)) * t;
+        y = this.nodes[3].y + this.nodes[3].offsetY + 
+            (this.nodes[4].y + this.nodes[4].offsetY - (this.nodes[3].y + this.nodes[3].offsetY)) * t;
+      }
+      else {
+        const t = (progress - 0.8) / 0.2;
+        x = this.nodes[4].x + this.nodes[4].offsetX + 
+            (this.g2.x - (this.nodes[4].x + this.nodes[4].offsetX)) * t;
+        y = this.nodes[4].y + this.nodes[4].offsetY + 
+            (this.g2.y - (this.nodes[4].y + this.nodes[4].offsetY)) * t;
+      }
+      
+      c.beginPath();
+      c.arc(x, y, p.size, 0, 2 * Math.PI);
+      c.fillStyle = `hsla(60, 100%, 50%, ${0.7 + Math.sin(p.progress * Math.PI * 2) * 0.3})`;
+      c.fill();
+      
+      const gradient = c.createRadialGradient(x, y, 0, x, y, p.size * 2);
+      gradient.addColorStop(0, `hsla(60, 100%, 70%, 0.5)`);
+      gradient.addColorStop(1, "hsla(60, 100%, 50%, 0)");
+      
+      c.beginPath();
+      c.arc(x, y, p.size * 2, 0, 2 * Math.PI);
+      c.fillStyle = gradient;
+      c.fill();
+    });
+  }
+
+  playSound() {
+    if (!audioCtx) return;
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(musicContext.scale[2], audioCtx.currentTime); // E4
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(500, audioCtx.currentTime);
+    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+    oscillator.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.4);
+  }
+}
+
+// מחלקת זרם חשמלי
+class Current {
+  constructor(g1, g2) {
+    this.g1 = g1;
+    this.g2 = g2;
+    this.progress = 0;
+    this.speed = 0.01 + Math.random() * 0.02;
+    this.size = 3 + Math.random() * 4;
+    this.playSound();
+    musicContext.componentCount++;
+    playConnectionSound('current', musicContext.scale[3], musicContext.scale[0]); // G4 + C4
+  }
+  
+  update() {
+    this.progress += this.speed;
+    if(this.progress > 1) this.progress = 0;
+  }
+  
+  draw(c) {
+    const x = this.g1.x + (this.g2.x - this.g1.x) * this.progress;
+    const y = this.g1.y + (this.g2.y - this.g1.y) * this.progress;
+    
+    c.beginPath();
+    c.arc(x, y, this.size, 0, 2 * Math.PI);
+    c.fillStyle = "#FF0";
+    c.fill();
+    
+    const gradient = c.createRadialGradient(x, y, 0, x, y, this.size * 2);
+    gradient.addColorStop(0, "rgba(255,255,0,0.8)");
+    gradient.addColorStop(1, "rgba(255,255,0,0)");
+    
+    c.beginPath();
+    c.arc(x, y, this.size * 2, 0, 2 * Math.PI);
+    c.fillStyle = gradient;
+    c.fill();
+  }
+
+  playSound() {
+    if (!audioCtx) return;
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.type = 'square';
+    oscillator.frequency.setValueAtTime(musicContext.scale[3], audioCtx.currentTime); // G4
+    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.2);
+  }
+}
+
+// מחלקת חלקיק
+class Particle {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.vx = (Math.random() - 0.5) * 2;
+    this.vy = (Math.random() - 0.5) * 2;
+    this.size = 2 + Math.random() * 3;
+    this.life = 100 + Math.random() * 100;
+    this.maxLife = this.life;
+    this.color = `hsl(${Math.random() * 360}, 100%, 50%)`;
+  }
+  
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life--;
+    this.size *= 0.99;
+  }
+  
+  draw(c) {
+    const alpha = this.life / this.maxLife;
+    c.beginPath();
+    c.arc(this.x, this.y, this.size, 0, 2 * Math.PI);
+    c.fillStyle = this.color.replace(")", `, ${alpha})`).replace("hsl", "hsla");
+    c.fill();
+  }
+
+  static playSound() {
+    if (!audioCtx) return;
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(musicContext.scale[Math.floor(Math.random() * 5)], audioCtx.currentTime);
+    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.3);
+  }
+}
+
+// מחלקת צביר
+class Cluster {
+  constructor(gears, springs) {
+    this.gears = gears;
+    this.springs = springs;
+    this.playSound();
+    musicContext.componentCount++;
+    playConnectionSound('cluster', musicContext.scale[0], musicContext.scale[2]); // C4 + E4
+  }
+
+  playSound() {
+    if (!audioCtx) return;
+    const notes = [musicContext.scale[0], musicContext.scale[2], musicContext.scale[4]];
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime + i * 0.15);
+      gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime + i * 0.15);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + i * 0.15 + 0.25);
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      osc.start(audioCtx.currentTime + i * 0.15);
+      osc.stop(audioCtx.currentTime + i * 0.15 + 0.25);
+    });
+  }
+}
+
+// בניית המערכת
+function build() {
+  gears = []; 
+  springs = []; 
+  leds = [];
+  wires = [];
+  currents = [];
+  particles = [];
+  circuits.forEach(circuit => circuit.stopSound());
+  circuits = [];
+  musicContext.componentCount = 0;
+  musicContext.activeOscillators.clear();
+  
+  if (layoutType !== 0) {
+    const cols = Math.floor(12 * density * (scaleFactor / 100)), 
+          rows = Math.floor(8 * density * (scaleFactor / 100)),
+          sx = w / cols, 
+          sy = h / rows;
+    
+    let positions = [];
+    const scale = scaleFactor / 100;
+    
+    switch(layoutType) {
+      case 1:
+        for(let i = 0; i < cols * rows; i++) {
+          positions.push({
+            x: Math.random() * w * 0.8 + w * 0.1,
+            y: Math.random() * h * 0.8 + h * 0.1
+          });
+        }
+        break;
+        
+      case 2:
+        for(let i = 0; i < cols * rows; i++) {
+          const a = i * 0.2 * scale, r = 5 * scale + i * 2 * scale;
+          positions.push({
+            x: w/2 + Math.cos(a) * r,
+            y: h/2 + Math.sin(a) * r
+          });
+        }
+        break;
+        
+      case 3:
+        for(let y = 0; y < rows; y++) {
+          for(let x = 0; x < cols; x++) {
+            const a = (x / cols) * 2 * Math.PI, 
+                  r = (y / rows) * Math.min(w, h) / 2 * scale;
+            positions.push({
+              x: w/2 + Math.cos(a) * r,
+              y: h/2 + Math.sin(a) * r
+            });
+          }
+        }
+        break;
+        
+      case 4:
+        for(let y = 0; y < rows; y++) {
+          for(let x = 0; x < cols; x++) {
+            positions.push({
+              x: x * sx * 1.5 * scale,
+              y: y * sy * scale + (x % 2 ? sy/2 * scale : 0)
+            });
+          }
+        }
+        break;
+        
+      case 5:
+        for(let y = 0; y < rows; y++) {
+          for(let x = 0; x < cols; x++) {
+            positions.push({
+              x: x * sx * scale + (y % 3 ? sx/2 * scale : 0),
+              y: y * sy * scale + (x % 3 ? sy/2 * scale : 0)
+            });
+          }
+        }
+        break;
+        
+      case 6:
+        for(let y = 0; y < rows; y++) {
+          for(let x = 0; x < cols; x++) {
+            positions.push({
+              x: x * sx * 1.5 * scale + (y % 2 ? sx * 0.75 * scale : 0),
+              y: y * sy * 0.866 * scale
+            });
+          }
+        }
+        break;
+        
+      case 7:
+        for(let i = 0; i < cols * rows; i++) {
+          const a = (i / (cols * rows)) * 2 * Math.PI;
+          positions.push({
+            x: w/2 + Math.cos(a) * (h/3) * scale,
+            y: h/2 + Math.sin(a) * (h/3) * scale
+          });
+        }
+        break;
+        
+      default:
+        for(let y = 0; y < rows; y++) {
+          for(let x = 0; x < cols; x++) {
+            positions.push({
+              x: x * sx * scale + sx/2 * scale,
+              y: y * sy * scale + sy/2 * scale
+            });
+          }
+        }
+    }
+    
+    positions.forEach(p => {
+      const g = new Gear(p.x, p.y, baseSize + Math.random() * 3);
+      gears.push(g);
+    });
+    
+    if(layoutType === 0) {
+      for(let i = 0; i < gears.length; i++) {
+        if((i % cols) !== 0) springs.push(new Spring(gears[i], gears[i-1], 0.02));
+        if(i >= cols) springs.push(new Spring(gears[i], gears[i-cols], 0.02));
+      }
+    }
+    
+    gears.forEach(g => { 
+      if(Math.random() > 0.85) leds.push(new LED(g, 0.05 + Math.random() * 0.05)); 
+    });
+    
+    for(let i = 0; i < gears.length / 4; i++) {
+      const g1 = gears[Math.floor(Math.random() * gears.length)];
+      const g2 = gears[Math.floor(Math.random() * gears.length)];
+      if(g1 !== g2) {
+        const wire = new Wire(g1, g2);
+        wires.push(wire);
+        checkForCircuit(wire, g1, g2);
+      }
+    }
+    
+    for(let i = 0; i < gears.length / 5; i++) {
+      const g1 = gears[Math.floor(Math.random() * gears.length)];
+      const g2 = gears[Math.floor(Math.random() * gears.length)];
+      if(g1 !== g2) {
+        const current = new Current(g1, g2);
+        currents.push(current);
+        checkForCircuit(current, g1, g2);
+      }
+    }
+  }
+}
+
+// בנייה ראשונית
+build();
+gridPoint.style.display = 'block';
+showTooltip("לחץ להוספת גלגלי שיניים במצב גריד", 5000);
+
+// מציאת נקודת הגריד הקרובה ביותר
+function findNearestGridPoint(x, y) {
+  const step = gridSpacing;
+  const halfStep = step / 2;
+  
+  const gridX = Math.round((x - halfStep) / step) * step + halfStep;
+  const gridY = Math.round((y - halfStep) / step) * step + halfStep;
+  
+  return {
+    x: Math.max(halfStep, Math.min(w - halfStep, gridX)),
+    y: Math.max(halfStep, Math.min(h - halfStep, gridY))
+  };
+}
+
+// מציאת רכיב קרוב למיקום העכבר
+function findNearestComponent(x, y) {
+  let nearest = null, minDist = Infinity;
+
+  const checkComponents = (components) => {
+    components.forEach(comp => {
+      const { g1, g2 } = comp;
+      const dx = g2.x - g1.x, dy = g2.y - g1.y;
+      const len = Math.hypot(dx, dy);
+      const t = Math.max(0, Math.min(1, ((x - g1.x) * dx + (y - g1.y) * dy) / (len * len)));
+      const projX = g1.x + t * dx, projY = g1.y + t * dy;
+      const dist = Math.hypot(x - projX, y - projY);
+      if (dist < minDist && dist < 10) {
+        minDist = dist;
+        nearest = comp;
+      }
+    });
+  };
+
+  checkComponents(springs);
+  checkComponents(wires);
+  checkComponents(currents);
+
+  return nearest;
+}
+
+// ציור רשת רקע
+function drawGrid(t) {
+  if(document.body.classList.contains("dark")) {
+    ctxBg.fillStyle = "#111"; 
+    ctxBg.fillRect(0, 0, w, h);
+    ctxBg.strokeStyle = "rgba(0,255,255,0.05)";
+  } else {
+    ctxBg.clearRect(0, 0, w, h);
+    ctxBg.strokeStyle = "rgba(0,0,0,0.05)";
+  }
+  
+  const step = gridSpacing;
+  for(let x = 0; x < w; x += step) {
+    ctxBg.beginPath(); ctxBg.moveTo(x, 0); ctxBg.lineTo(x, h); ctxBg.stroke();
+  }
+  for(let y = 0; y < h; y += step) {
+    ctxBg.beginPath(); ctxBg.moveTo(0, y); ctxBg.lineTo(w, y); ctxBg.stroke();
+  }
+  
+  if(gridMode) {
+    ctxBg.fillStyle = document.body.classList.contains("dark") ? "rgba(255,100,100,0.3)" : "rgba(255,0,0,0.3)";
+    for(let x = step/2; x < w; x += step) {
+      for(let y = step/2; y < h; y += step) {
+        ctxBg.beginPath();
+        ctxBg.arc(x, y, 2, 0, Math.PI * 2);
+        ctxBg.fill();
+      }
+    }
+  }
+}
+
+// ציור קוד בינארי
+function drawBinary() {
+  ctxBin.clearRect(0, 0, w, h);
+  ctxBin.font = "8px monospace";
+  ctxBin.fillStyle = document.body.classList.contains("bw")
+    ? "rgba(0,255,255,0.35)" : "rgba(0,0,0,0.2)";
+  
+  gears.forEach(g => {
+    const bx = Math.round(g.x).toString(2).padStart(10, "0"),
+          by = Math.round(g.y).toString(2).padStart(10, "0");
+    ctxBin.fillText(bx + " " + by, g.x + 5, g.y - 5);
+  });
+}
+
+// ציור קוד המקור
+function drawCode(t) {
+  ctxCode.clearRect(0, 0, w, h);
+  charIndex = Math.min(charIndex + 5, codeText.length);
+  const lines = codeText.slice(0, charIndex).match(/.{1,80}/g) || [];
+  
+  ctxCode.save();
+  if(pointerActive) {
+    ctxCode.beginPath();
+    ctxCode.arc(pointerX, pointerY, TEAR_RADIUS, 0, 2 * Math.PI);
+    ctxCode.clip();
+  }
+  
+  ctxCode.font = "12px monospace";
+  ctxCode.fillStyle = document.body.classList.contains("bw") ? "#00ffff" :
+    (document.body.classList.contains("dark") ? "#0f0" : "#00f");
+  
+  lines.forEach((ln, i) => ctxCode.fillText(ln, 10, 20 + i * 14));
+  ctxCode.restore();
+}
+
+// יצירת חלקיקים
+function createParticles(x, y, count = 10) {
+  Particle.playSound();
+  for(let i = 0; i < count; i++) {
+    particles.push(new Particle(x, y));
+  }
+}
+
+// לולאת אנימציה
+function animate(t) {
+  drawGrid(t);
+  drawBinary();
+  drawCode(t);
+  ctx.clearRect(0, 0, w, h);
+  
+  gears.forEach(g => g.update(t));
+  wires.forEach(w => w.update(t));
+  currents.forEach(c => c.update());
+  
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => p.update());
+  
+  springs.forEach(s => s.draw(ctx, t));
+  wires.forEach(w => w.draw(ctx));
+  currents.forEach(c => c.draw(ctx));
+  gears.forEach(g => g.draw(ctx));
+  leds.forEach(l => l.draw(ctx, t));
+  particles.forEach(p => p.draw(ctx));
+  
+  requestAnimationFrame(animate);
+}
+
+// התחלת אנימציה
+animate(0);
+
+// אירועי מצביע
+let selectedGear = null;
+
+fg.addEventListener("pointermove", e => {
+  pointerX = e.clientX;
+  pointerY = e.clientY;
+  
+  if(gridMode) {
+    const gridPos = findNearestGridPoint(pointerX, pointerY);
+    gridPoint.style.left = gridPos.x + 'px';
+    gridPoint.style.top = gridPos.y + 'px';
+  }
+});
+
+fg.addEventListener("pointerdown", e => {
+  initAudioContext();
+  pointerActive = true;
+  pointerX = e.clientX; 
+  pointerY = e.clientY;
+  
+  if (deleteMode) {
+    const component = findNearestComponent(pointerX, pointerY);
+    if (component) {
+      removeComponent(component);
+    }
+    return;
+  }
+
+  if (gridMode) {
+    const gridPos = findNearestGridPoint(pointerX, pointerY);
+    const newGear = new Gear(gridPos.x, gridPos.y, baseSize + Math.random() * 3);
+    gears.push(newGear);
+    createParticles(gridPos.x, gridPos.y, 10);
+    return;
+  }
+  
+  if (isolateMode || addElementMode) {
+    let nearest = null, md = Infinity;
+    
+    gears.forEach(g => {
+      const d = Math.hypot(g.x - pointerX, g.y - pointerY);
+      if (d < md && d < 30) { md = d; nearest = g; }
+    });
+    
+    if (nearest) {
+      if (isolateMode) {
+        for (let k = 0; k < 6; k++) {
+          const ang = k * (Math.PI * 2 / 6);
+          const nx = nearest.bx + Math.cos(ang) * 50;
+          const ny = nearest.by + Math.sin(ang) * 50;
+          const ng = new Gear(nx, ny, baseSize + Math.random() * 3);
+          gears.push(ng);
+          const spring = new Spring(nearest, ng, 0.02);
+          springs.push(spring);
+          checkForCircuit(spring, nearest, ng);
+          if (Math.random() > 0.75) leds.push(new LED(ng, 0.05 + Math.random() * 0.05));
+        }
+        createParticles(nearest.x, nearest.y, 20);
+      } else if (addElementMode) {
+        if (!selectedGear) {
+          selectedGear = nearest;
+          showTooltip("בחר גלגל שני להוספת " + 
+            (addElementMode === 'spring' ? 'קפיץ' : 
+             addElementMode === 'led' ? 'נורית' :
+             addElementMode === 'wire' ? 'קשר' :
+             addElementMode === 'current' ? 'זרם' : 
+             addElementMode === 'particle' ? 'חלקיקים' :
+             addElementMode === 'cluster' ? 'צביר' : 'גלגל'), 0);
+        } else if (selectedGear !== nearest) {
+          let newComponent;
+          switch (addElementMode) {
+            case 'spring':
+              newComponent = new Spring(selectedGear, nearest, 0.02 + Math.random() * 0.03);
+              springs.push(newComponent);
+              checkForCircuit(newComponent, selectedGear, nearest);
+              break;
+            case 'led':
+              leds.push(new LED(nearest, 0.05 + Math.random() * 0.05));
+              break;
+            case 'wire':
+              newComponent = new Wire(selectedGear, nearest);
+              wires.push(newComponent);
+              checkForCircuit(newComponent, selectedGear, nearest);
+              break;
+            case 'current':
+              newComponent = new Current(selectedGear, nearest);
+              currents.push(newComponent);
+              checkForCircuit(newComponent, selectedGear, nearest);
+              break;
+            case 'particle':
+              createParticles(nearest.x, nearest.y, 30);
+              break;
+            case 'cluster':
+              const clusterGears = [];
+              const clusterSprings = [];
+              for (let i = 0; i < 3; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 10 + Math.random() * 40;
+                const nx = nearest.x + Math.cos(angle) * dist;
+                const ny = nearest.y + Math.sin(angle) * dist;
+                const ng = new Gear(nx, ny, baseSize * 0.7 + Math.random() * 2);
+                clusterGears.push(ng);
+                gears.push(ng);
+                const spring = new Spring(nearest, ng, 0.03 + Math.random() * 0.04);
+                clusterSprings.push(spring);
+                springs.push(spring);
+                checkForCircuit(spring, nearest, ng);
+              }
+              new Cluster(clusterGears, clusterSprings);
+              break;
+            case 'gear':
+              const newGear = new Gear(nearest.x + (Math.random() - 0.5) * 80, 
+                                      nearest.y + (Math.random() - 0.5) * 80, 
+                                      baseSize * 0.8 + Math.random() * 2);
+              gears.push(newGear);
+              newComponent = new Spring(nearest, newGear, 0.03);
+              springs.push(newComponent);
+              checkForCircuit(newComponent, nearest, newGear);
+              break;
+          }
+          createParticles(nearest.x, nearest.y, 15);
+          selectedGear = null;
+          addElementMode = null;
+          addElementsBtn.classList.remove('active');
+          tooltip.style.display = 'none';
+        }
+      }
+    }
+  }
+});
+
+fg.addEventListener("pointerup", () => { 
+  pointerActive = false; 
+});
+
+fg.addEventListener("touchmove", e => {
+  if(e.touches.length >= 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    spreadScale = Math.max(30, Math.min(150, Math.hypot(dx, dy)));
+    pointerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    pointerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    e.preventDefault();
+  }
+}, { passive: false });
+
+document.addEventListener('click', (e) => {
+  if(!layoutMenu.contains(e.target) && e.target !== layoutBtn) {
+    layoutMenu.style.display = 'none';
+  }
+  if(!addElementsMenu.contains(e.target) && e.target !== addElementsBtn) {
+    addElementsMenu.style.display = 'none';
+  }
+  if(!sizeMenu.contains(e.target) && e.target !== sizeBtn) {
+    sizeMenu.style.display = 'none';
+  }
+});
+</script>
+</body>
+</html>
