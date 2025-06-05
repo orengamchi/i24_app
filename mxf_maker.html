@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ממיר WEBM ל-MXF בדפדפן</title>
+  <style>
+    :root {
+      --accent: #00d2ff;
+      --accent-dark: #0077aa;
+      --bg-1: #0a0a1f;
+      --bg-2: #1e293b;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Assistant', Arial, sans-serif;
+      background: radial-gradient(circle at 50% 20%, var(--bg-1), var(--bg-2));
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    h1 { font-size: 1.8rem; margin-top: 1.4rem; }
+    #uploader {
+      border: 3px dashed var(--accent);
+      border-radius: var(--radius);
+      width: min(90vw, 480px);
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 1rem;
+    }
+    #uploader.dragover { background: rgba(0, 210, 255, 0.15); }
+    #uploader input { display: none; }
+    #options {
+      margin-top: 1.2rem;
+      display: flex;
+      gap: .75rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    select, button {
+      padding: .6rem 1rem;
+      border-radius: var(--radius);
+      border: none;
+      font-size: 1rem;
+    }
+    select {
+      background: #222;
+      color: #fff;
+    }
+    button {
+      background: var(--accent);
+      color: #000;
+      cursor: pointer;
+      box-shadow: 0 0 6px var(--accent);
+      transition: background 0.3s, transform 0.3s;
+    }
+    button:hover { background: var(--accent-dark); }
+    button:active { transform: scale(0.97); }
+    #progressWrapper {
+      width: min(90vw, 480px);
+      margin-top: 1rem;
+      background: #333;
+      border-radius: var(--radius);
+      overflow: hidden;
+      height: 18px;
+      display: none;
+    }
+    #progressBar {
+      height: 100%;
+      background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+      width: 0%;
+      transition: width .2s;
+    }
+    #log {
+      width: min(90vw, 480px);
+      margin-top: 1rem;
+      background: #111;
+      padding: .8rem;
+      border-radius: var(--radius);
+      font-size: .85rem;
+      height: 140px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      direction: ltr;
+      text-align: left;
+    }
+    a#downloadLink {
+      margin-top: 1.2rem;
+      display: none;
+      padding: .8rem 1.2rem;
+      background: var(--accent);
+      border-radius: var(--radius);
+      text-decoration: none;
+      color: #000;
+      font-weight: 600;
+      box-shadow: 0 0 6px var(--accent);
+    }
+    @media (hover:none) {
+      #uploader { font-size: 1.1rem; }
+    }
+  </style>
+</head>
+<body>
+  <h1>🌀 ממיר WEBM &rlm;↠&rlm; MXF בדפדפן</h1>
+
+  <label id="uploader">
+    <span id="uploaderText">גרור/י לכאן קובץ WebM<br>או הקלק/י לבחירה</span>
+    <input id="fileInput" type="file" accept=".webm,video/webm" />
+  </label>
+
+  <div id="options">
+    <select id="codec">
+      <option value="dnxhd" selected>DNxHD 120 Mb/s</option>
+      <option value="prores">ProRes 422 HQ</option>
+      <option value="avcintra">AVC-Intra 100</option>
+    </select>
+    <button id="convertBtn" disabled>המר</button>
+  </div>
+
+  <div id="progressWrapper"><div id="progressBar"></div></div>
+  <pre id="log">העלה קובץ כדי להתחיל…</pre>
+  <a id="downloadLink" href="#" download="output.mxf">⬇️ הורד/י את קובץ ה-MXF</a>
+
+<script type="module">
+  import { createFFmpeg, fetchFile } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/esm/index.js';
+
+  const ffmpeg = createFFmpeg({
+    log: true,
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js'
+  });
+
+  const fileInput = document.getElementById('fileInput');
+  const uploader = document.getElementById('uploader');
+  const uploaderText = document.getElementById('uploaderText');
+  const convertBtn = document.getElementById('convertBtn');
+  const progressWrapper = document.getElementById('progressWrapper');
+  const progressBar = document.getElementById('progressBar');
+  const logEl = document.getElementById('log');
+  const downloadLink = document.getElementById('downloadLink');
+  const codecSelect = document.getElementById('codec');
+
+  let webmFileName = '';
+  let webmData;
+
+  /* ----- UI helpers ----- */
+  const log = msg => { logEl.textContent += `\n${msg}`; logEl.scrollTop = logEl.scrollHeight; };
+
+  /* ----- Drag & Drop ----- */
+  ['dragenter','dragover'].forEach(evt => {
+    uploader.addEventListener(evt, e => { e.preventDefault(); uploader.classList.add('dragover'); });
+  });
+  ['dragleave','drop'].forEach(evt => {
+    uploader.addEventListener(evt, e => { e.preventDefault(); uploader.classList.remove('dragover'); });
+  });
+  uploader.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+  fileInput.addEventListener('change', () => fileInput.files[0] && handleFile(fileInput.files[0]));
+
+  function handleFile(file) {
+    if (!file.name.toLowerCase().endsWith('.webm')) {
+      alert('רק קבצי WebM נתמכים כרגע.');
+      return;
+    }
+    webmFileName = file.name;
+    uploaderText.textContent = `✔️ נטען: ${file.name}`;
+    convertBtn.disabled = false;
+    downloadLink.style.display = 'none';
+    progressWrapper.style.display = 'none';
+    logEl.textContent = 'מוכן להמרה…';
+    webmData = file;
+  }
+
+  /* ----- Conversion ----- */
+  convertBtn.addEventListener('click', async () => {
+    convertBtn.disabled = true;
+    progressBar.style.width = '0%';
+    progressWrapper.style.display = 'block';
+    logEl.textContent = 'טוען את FFmpeg (פעם ראשונה עשוי לקחת חצי דקה)…';
+    if (!ffmpeg.isLoaded()) await ffmpeg.load();
+
+    const input = 'input.webm';
+    const output = 'output.mxf';
+    ffmpeg.FS('writeFile', input, await fetchFile(webmData));
+    log('קובץ נטען לזיכרון.');
+
+    ffmpeg.setProgress(({ ratio }) => {
+      progressBar.style.width = `${(ratio * 100).toFixed(1)}%`;
+    });
+
+    /* בניית פקודת FFmpeg */
+    const codec = codecSelect.value;
+    let cmd;
+    switch (codec) {
+      case 'prores':
+        cmd = ['-i', input, '-c:v', 'prores_ks', '-profile:v', '3',
+               '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
+               output];
+        break;
+      case 'avcintra':
+        cmd = ['-i', input, '-c:v', 'libx264', '-pix_fmt', 'yuv422p',
+               '-profile:v', 'high', '-level', '4.2', '-b:v', '100M',
+               '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
+               output];
+        break;
+      default: // dnxhd
+        cmd = ['-i', input, '-c:v', 'dnxhd', '-profile:v', 'dnxhd',
+               '-b:v', '120M', '-c:a', 'pcm_s16le',
+               '-ar', '48000', '-ac', '2',
+               '-timecode', '00:00:00:00',
+               output];
+    }
+    log(`מריץ: ffmpeg ${cmd.join(' ')}`);
+
+    try {
+      await ffmpeg.run(...cmd);
+      log('✔️ המרה הסתיימה.');
+      const data = ffmpeg.FS('readFile', output);
+      const blob = new Blob([data.buffer], { type: 'application/mxf' });
+      const url = URL.createObjectURL(blob);
+      downloadLink.href = url;
+      downloadLink.download = webmFileName.replace(/\.webm$/i, '.mxf');
+      downloadLink.style.display = 'inline-block';
+    } catch (err) {
+      console.error(err);
+      alert('המרה נכשלה: ' + err.message);
+      log('❌ שגיאה: ראו Console.');
+    } finally {
+      convertBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
